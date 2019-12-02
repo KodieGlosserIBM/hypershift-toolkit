@@ -3,6 +3,7 @@ package render
 import (
 	"bufio"
 	"bytes"
+	"crypto/rand"
 	"encoding/base64"
 	"fmt"
 	"io/ioutil"
@@ -68,19 +69,26 @@ func base64Func(params interface{}, rc *renderContext) func(string) string {
 	}
 }
 
-func includeFileFunc(params interface{}, rc *renderContext) func(string, int) string {
-	return func(fileName string, indent int) string {
-		result, err := rc.substituteParams(params, fileName)
-		if err != nil {
-			panic(err.Error())
-		}
-		input := bytes.NewBufferString(result)
+func includeDataFunc() func(string, int) string {
+	return func(data string, indent int) string {
+		input := bytes.NewBufferString(data)
 		output := &bytes.Buffer{}
 		scanner := bufio.NewScanner(input)
 		for scanner.Scan() {
 			fmt.Fprintf(output, "%s%s\n", strings.Repeat(" ", indent), scanner.Text())
 		}
 		return output.String()
+	}
+}
+
+func includeFileFunc(params interface{}, rc *renderContext) func(string, int) string {
+	return func(fileName string, indent int) string {
+		result, err := rc.substituteParams(params, fileName)
+		if err != nil {
+			panic(err.Error())
+		}
+		includeFn := includeDataFunc()
+		return includeFn(result, indent)
 	}
 }
 
@@ -102,4 +110,30 @@ func cidrMask(cidr string) string {
 		panic("Expecting a 4-byte mask")
 	}
 	return fmt.Sprintf("%d.%d.%d.%d", m[0], m[1], m[2], m[3])
+}
+
+// randomString uses RawURLEncoding to ensure we do not get / characters or trailing ='s
+func randomString(size int) string {
+	// each byte (8 bits) gives us 4/3 base64 (6 bits) characters
+	// we account for that conversion and add one to handle truncation
+	b64size := base64.RawURLEncoding.DecodedLen(size) + 1
+	// trim down to the original requested size since we added one above
+	return base64.RawURLEncoding.EncodeToString(randomBytes(b64size))[:size]
+}
+
+func randomBytes(size int) []byte {
+	b := make([]byte, size)
+	if _, err := rand.Read(b); err != nil {
+		panic(err) // rand should never fail
+	}
+	return b
+}
+
+func indent(spaces int, v string) string {
+	pad := strings.Repeat(" ", spaces)
+	return pad + strings.Replace(v, "\n", "\n"+pad, -1)
+}
+
+func base64StringEncode(inputString string) string {
+	return base64.StdEncoding.EncodeToString([]byte(inputString))
 }
